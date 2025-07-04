@@ -1,9 +1,9 @@
 Write-Host "[+] Discovering local subnet..."
 
-# Get a usable IPv4 address
+# Get local IP address (non-loopback, non-169)
 $ip = (Get-NetIPAddress | Where-Object {
     $_.AddressFamily -eq 'IPv4' -and
-    $_.PrefixOrigin -ne 'WellKnown' -and
+    $_.IPAddress -ne '127.0.0.1' -and
     $_.IPAddress -notlike '169.*'
 }).IPAddress
 
@@ -12,29 +12,36 @@ if (-not $ip) {
     exit 1
 }
 
-# Calculate subnet range
-$subnet = $ip.ToString()
-$lastDot = $subnet.LastIndexOf('.')
-$subnetRange = $subnet.Substring(0, $lastDot) + ".0/24"
+# Get subnet range (e.g. 192.168.1.0/24)
+$subnetStr = $ip.ToString()
+$subnetRange = $subnetStr.Substring(0, $subnetStr.LastIndexOf('.')) + ".0/24"
 
-Write-Host "`nScanning range: $subnetRange`n"
+Write-Host "`n[+] Scanning range: $subnetRange`n"
 
-# Ensure Nmap is installed
+# Check if Nmap is installed
 if (-not (Get-Command nmap -ErrorAction SilentlyContinue)) {
     Write-Host "[+] Installing Nmap..."
-    winget install -e --id Insecure.Nmap -q --accept-package-agreements --accept-source-agreements
 
-    # Reload PATH in current session
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+    # Update Winget sources
+    winget source update
+
+    # Install using correct package ID
+    winget install -e --id Nmap.Nmap --accept-package-agreements --accept-source-agreements
+
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
 }
 
-# Run Nmap
+# Scan with Nmap
 Write-Host "[+] Running Nmap scan (this may take a minute)..."
 try {
     $results = nmap -sn $subnetRange | Select-String "Nmap scan report for"
+
     if ($results) {
         Write-Host "`n[+] Devices found:"
-        $results | ForEach-Object { $_.ToString() }
+        $results | ForEach-Object {
+            ($_ -split "for ")[1]
+        }
     } else {
         Write-Host "[-] No devices found."
     }
